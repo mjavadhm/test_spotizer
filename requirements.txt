@@ -1,0 +1,13 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+sqlalchemy[asyncio]>=2.0
+asyncpg>=0.29           # PostgreSQL (production)
+aiosqlite>=0.20         # SQLite (local dev)
+pydantic>=2.7
+pydantic-settings>=2.3
+aiohttp>=3.9
+python-dotenv>=1.0
+mutagen>=1.47           # reading audio tags/duration
+syncedlyrics>=1.0       # lyrics from LRCLib etc. (synced + plain-text fallback)
+deemix                  # downloader engine (CLI is used via subprocess)
+alembic>=1.13           # migrations (optional, create_all works for dev)
