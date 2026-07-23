@@ -138,13 +138,44 @@ class Downloader:
         if arl:
             (deemix_dir / ".arl").write_text(arl)
 
+        # Default config matches the field's proven-working deemix setup
         cfg_path = deemix_dir / "config.json"
-        cfg: dict = {}
+        cfg: dict = {
+            "downloadLocation": "",
+            "tracknameTemplate": "%artist% - %title%",
+            "albumTracknameTemplate": "%tracknumber% - %title%",
+            "playlistTracknameTemplate": "%artist% - %title%",
+            "createPlaylistFolder": True,
+            "createAlbumFolder": True,
+            "createArtistFolder": True,
+            "includeSingles": True,
+            "includeEPs": True,
+            "maxBitrate": 3,
+            "queueConcurrency": 3,
+            "fallbackBitrate": True,
+            "fallbackSearch": True,
+            "overwriteFile": "n",
+            "createM3U8File": False,
+            "embeddedArtworkSize": 800,
+            "saveArtwork": False,
+            "tags": {
+                "title": True,
+                "artist": True,
+                "album": True,
+                "cover": True,
+                "trackNumber": True,
+                "discNumber": True,
+                "date": True,
+                "year": True,
+                "genre": True,
+                "lyrics": True,
+            },
+        }
         if cfg_path.exists():
             try:
-                cfg = json.loads(cfg_path.read_text())
+                cfg.update(json.loads(cfg_path.read_text()))
             except Exception:
-                cfg = {}
+                pass
         if arl:
             cfg["arl"] = arl
         cfg["syncedLyrics"] = True  # save .lrc lyric files
@@ -238,13 +269,14 @@ class Downloader:
         lyrics_task = await self._prefetch_track_lyrics(url)
 
         bitrate = BITRATE_MAP.get(quality, "320")
+        # deemix's CLI only accepts the short flags -p / -b.
         cmd = [
             sys.executable,
             "-m",
             "deemix",
-            "--path",
+            "-p",
             str(dest_dir),
-            "--bitrate",
+            "-b",
             bitrate,
             url,
         ]
