@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +28,10 @@ class Settings(BaseSettings):
 
     # Optional: Google Gemini key for /recommendations (empty = feature disabled)
     GEMINI_API_KEY: str = ""
+
+    # Size-only private diagnostic journal; no TTL and no response/request bodies.
+    DIAGNOSTICS_DIR: str = "./diagnostics"
+    DIAGNOSTICS_MAX_BYTES: int = Field(default=20 * 1024 * 1024, ge=32768)
 
     API_V1_PREFIX: str = "/v1"
     DEBUG: bool = False

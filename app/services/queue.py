@@ -5,6 +5,8 @@
 - cancellation via a flag checked between steps
 """
 
+from ..diagnostics import record_exception
+
 import asyncio
 import logging
 import shutil
@@ -61,8 +63,8 @@ class DownloadQueue:
                 await self._process(job_id)
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001
-                logger.exception("worker %d: job %s crashed", index, job_id)
+            except Exception as exc:  # noqa: BLE001
+                record_exception("download_worker", exc)
                 await self._update_job(job_id, status="failed", error="Internal error")
             finally:
                 self.queue.task_done()
@@ -128,8 +130,8 @@ class DownloadQueue:
                     duration=audio_files[0].duration,
                     keep_source=True,  # job temp file must stay for temp_url
                 )
-            except Exception:  # noqa: BLE001
-                logger.exception("failed to archive track %s into library", job.source_id)
+            except Exception as exc:  # noqa: BLE001
+                record_exception("archive_track", exc)
 
         extra_files = [f for f in result.files if f.kind != "audio"]
         produced = list(result.files)

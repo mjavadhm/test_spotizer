@@ -1,5 +1,7 @@
 """Periodic cleanup of expired temp files."""
 
+from ..diagnostics import record_exception
+
 import asyncio
 import logging
 import shutil
@@ -45,6 +47,6 @@ async def cleanup_loop() -> None:
     while True:
         try:
             await _cleanup_once()
-        except Exception:  # noqa: BLE001
-            logger.exception("cleanup iteration failed")
+        except Exception as exc:  # noqa: BLE001
+            record_exception("cleanup", exc)
         await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)

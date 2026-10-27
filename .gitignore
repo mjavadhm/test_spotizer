@@ -1,0 +1,6 @@
+
+# Private diagnostics and local runtime state
+diagnostics/
+__pycache__/
+*.py[cod]
+.pytest_cache/

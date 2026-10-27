@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from .config import get_settings
+from .diagnostics import RequestDiagnosticsMiddleware, configure, record_exception
 from .db import close_db, init_db
 from .routers import (
     catalog,
@@ -24,23 +25,36 @@ from .services.queue import download_queue, requeue_stale_jobs
 logging.basicConfig(level=logging.INFO)
 
 settings = get_settings()
+configure(settings.DIAGNOSTICS_DIR, settings.DIAGNOSTICS_MAX_BYTES)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup
-    Path(settings.TEMP_DIR).mkdir(parents=True, exist_ok=True)
-    Path(settings.MUSIC_DIR).mkdir(parents=True, exist_ok=True)
-    await init_db()
-    await download_queue.start()
-    await requeue_stale_jobs(download_queue)
+    try:
+        Path(settings.TEMP_DIR).mkdir(parents=True, exist_ok=True)
+        Path(settings.MUSIC_DIR).mkdir(parents=True, exist_ok=True)
+        await init_db()
+        await download_queue.start()
+        await requeue_stale_jobs(download_queue)
+    except Exception as exc:
+        record_exception("startup", exc)
+        raise
     cleanup_task = asyncio.create_task(cleanup_loop())
-    yield
-    # shutdown
-    cleanup_task.cancel()
-    await download_queue.stop()
-    await deezer_client.close()
-    await close_db()
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await download_queue.stop()
+            await deezer_client.close()
+            await close_db()
+        except Exception as exc:
+            record_exception("shutdown", exc)
+            raise
 
 
 app = FastAPI(
@@ -49,6 +63,8 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+app.add_middleware(RequestDiagnosticsMiddleware)
 
 app.include_router(users.router, prefix=settings.API_V1_PREFIX)
 app.include_router(catalog.router, prefix=settings.API_V1_PREFIX)

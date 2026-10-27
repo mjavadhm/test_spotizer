@@ -86,3 +86,79 @@ bot_telegram/      # Telegram bot (thin client over this API) — see its README
 - `services/library.py` — permanent track store under `MUSIC_DIR/{track_id}/`; on-demand downloads are deduplicated per `(track_id, quality)` and shielded from client disconnects.
 - `routers/tracks.py` — Range header parsing + `StreamingResponse` (ported from the old `backend/routers/stream.py`, but serving local files instead of Telegram/Telethon).
 - Library files are **not** touched by the TTL cleanup (that only affects job temp files).
+
+## Local diagnostics and request correlation
+
+The app sends a fresh UUID in `X-Request-ID` for each HTTP call. The API validates
+that header (UUID or 32 hex digits), generates a replacement when absent/invalid,
+and echoes the accepted ID on successful, validation, authorization and failed
+responses. An unhandled error before response headers produces:
+
+```json
+{"error":"internal_server_error","request_id":"<the same ID as the response header>"}
+```
+
+After streaming starts, an error is logged but cannot replace the partial audio
+with JSON. A proxy-generated failure may not reach the application at all.
+
+Configuration (environment variables or `.env`):
+
+```dotenv
+DIAGNOSTICS_DIR=./diagnostics
+DIAGNOSTICS_MAX_BYTES=20971520
+```
+
+This is a **20 MiB size-only journal by default, with no time expiry**. Oldest
+segments rotate when the next event would exceed the cap. The directory must be
+writable, private, and on a persistent local volume shared by workers. File locks
+coordinate rotation across workers. This Linux deployment uses `fcntl.flock`.
+Do not serve this directory through HTTP or commit it. Disk-full/write failures
+must not break an otherwise successful API request.
+
+JSONL records contain time, route **template**, method, HTTP status, elapsed time,
+request ID and, for exceptions, type, stack-frame file/line/function and a limited
+operational category. Request/response bodies, raw queries, credentials, raw
+exception messages, SQL parameters and user content are not recorded here. The
+same sanitized records are emitted under `spotizer.diagnostics` to stderr.
+HTTP errors, streaming exceptions, download worker/archive errors, startup,
+shutdown and cleanup errors are covered. This is not monitoring for OS kills,
+resource exhaustion, or every third-party logger.
+
+To investigate an app report, find its request ID in `diagnostics/*.jsonl` (or
+your service's console logs). Match the stack line with the deployed revision.
+A category such as `schema_missing_table` is a clue, not an automatic repair.
+The existing download/status HTTP 500 still needs a fresh trace after deployment.
+
+### Reverse proxies
+
+Preserve an incoming app `X-Request-ID`; do not blindly replace it with a proxy
+ID. An optional Nginx configuration uses a generated fallback only when missing:
+
+```nginx
+# http context
+map $http_x_request_id $spotizer_request_id {
+    ""      $request_id;
+    default $http_x_request_id;
+}
+log_format spotizer_safe '$time_iso8601 $request_method $status '
+                         'rid=$upstream_http_x_request_id proxy_rid=$request_id '
+                         'duration=$request_time';
+# Inside the existing API location:
+# proxy_set_header X-Request-ID $spotizer_request_id;
+# access_log /var/log/nginx/spotizer-safe.log spotizer_safe;
+```
+
+Nginx passes upstream response headers by default. Avoid adding a second
+`X-Request-ID` response header. Avoid `$request`, `$request_uri`, query strings and
+credential headers in diagnostic access logs. Configure console/proxy log rotation
+separately: the journal's 20 MiB cap does **not** cap Docker, journald, Nginx or
+third-party logs. Export server JSONL files only through trusted admin access;
+there is intentionally no public diagnostics endpoint or automatic upload.
+
+Deploy the changed code and restart the service to activate it. No database
+migration is required for diagnostics. Test with:
+
+```bash
+pip install pytest httpx
+python -m pytest -q tests/test_diagnostics.py
+```
